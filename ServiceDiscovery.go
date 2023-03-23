@@ -74,6 +74,10 @@ func discoverService(ip string, port int) string {
 	if isEtcd(ip, port) {
 		return "etcd"
 	}
+
+	if isMinikube(ip, port) {
+		return "minikube"
+	}
 	// Add more discovery functions here
 	return "unknown"
 }
@@ -154,3 +158,64 @@ func isEtcd(ip string, port int) bool {
 
 	return false
 }
+
+func isMinikube(ip string, port int) bool {
+	// Attempt to connect to the kube-apiserver
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), time.Second*5)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	// Send a request to the kube-apiserver
+	fmt.Fprintf(conn, "GET /version HTTP/1.1\r\nHost: %s\r\n\r\n", ip)
+
+	// Read the response from the kube-apiserver
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return false
+	}
+
+	// Check if the response contains the minikube version string
+	isMinikube := strings.Contains(string(buf[:n]), "minikube")
+
+	return isMinikube
+}
+
+/* A function to check if a port is serving HTTP and to determine if it's a kube-apiserver which is serving minikube or etcd or other services
+func isHTTP(ip string, port int) string {
+	// Check if it's an HTTP service
+	if strings.HasPrefix(fmt.Sprintf("%d", port), "8") || strings.HasPrefix(fmt.Sprintf("%d", port), "80") || strings.HasPrefix(fmt.Sprintf("%d", port), "443") {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), time.Second*5)
+		if err != nil {
+			return "unknown"
+		}
+		defer conn.Close()
+
+		fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s\r\n\r\n", ip)
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
+		if err != nil {
+			return "unknown"
+		}
+
+		// Check if it's a kube-apiserver
+		if strings.Contains(string(buf[:n]), "kube-apiserver") {
+			// Check if it's serving minikube
+			if isMinikube(ip, port) {
+				return "minikube"
+			}
+			return "kube-apiserver"
+		}
+
+		// Check if it's etcd
+		if isEtcd(ip, port) {
+			return "etcd"
+		}
+
+		return "http"
+	}
+	return "unknown"
+}
+*/
