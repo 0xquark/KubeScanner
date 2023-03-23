@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -77,6 +80,18 @@ func discoverService(ip string, port int) string {
 
 	if isMinikube(ip, port) {
 		return "minikube"
+	}
+
+	if isInsecureAPI(ip, port) {
+		return "insecure_api"
+	}
+
+	if isKubernetesAPI(ip, port) {
+		return "kubernetes_api"
+	}
+
+	if isKubeletHTTPS(ip, port) {
+		return "kubelet"
 	}
 	// Add more discovery functions here
 	return "unknown"
@@ -183,6 +198,121 @@ func isMinikube(ip string, port int) bool {
 	return isMinikube
 }
 
+// Check for insecure API Port
+func isInsecureAPI(ip string, port int) bool {
+	url := fmt.Sprintf("https://%s:%d", ip, port)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return false
+	}
+
+	// Disable TLS verification
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	// Check if the response contains "Unauthorized"
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(body), "Unauthorized")
+}
+
+// Check if a port is serving Kubernetes API
+func isKubernetesAPI(ip string, port int) bool {
+	// Attempt to connect to the Kubernetes API service
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), time.Second*5)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	// Send a request to the Kubernetes API service
+	fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s\r\n\r\n", ip)
+
+	// Read the response from the Kubernetes API service
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return false
+	}
+
+	// Check if the response contains the Kubernetes API version string
+	isKubernetesAPI := strings.Contains(string(buf[:n]), "kubernetes")
+
+	return isKubernetesAPI
+}
+
+// To check if Kubelet is running on the port, we can make a request to the /healthz endpoint of the Kubelet API. If the response status code is 200, then Kubelet is running on the port.
+// To check if the HTTPS API allows full mode access, we can make a request to the /pods endpoint of the Kubernetes API using the curl command. If the response contains a list of running pods, then the API allows full mode access.
+func isKubeletHTTPS(ip string, port int) bool {
+	// Attempt to connect to the Kubelet HTTPS API
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), time.Second*5)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+
+	// Send a request to the Kubelet HTTPS API
+	fmt.Fprintf(conn, "GET /healthz HTTP/1.1\r\nHost: %s\r\n\r\n", ip)
+
+	// Read the response from the Kubelet HTTPS API
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return false
+	}
+
+	// Check if the response indicates that the Kubelet is running
+	isKubelet := strings.Contains(string(buf[:n]), "ok")
+
+	if isKubelet {
+		// Attempt to access the Kubernetes API using the Kubelet's pod IP address
+		podIP := strings.Split(ip, ":")[0]
+		cmd := exec.Command("kubectl", "--insecure-skip-tls-verify", "--server=https://"+podIP+":10250", "get", "pods", "--all-namespaces")
+		output, err := cmd.CombinedOutput()
+
+		// Check if kubectl output indicates that unauthenticated access is available
+		isVulnerable := false
+		if err != nil {
+			if strings.Contains(string(output), "Unauthorized") || strings.Contains(string(output), "authentication required") {
+				isVulnerable = true
+			}
+		} else {
+			if strings.TrimSpace(string(output)) != "" {
+				isVulnerable = true
+			}
+		}
+
+		// Check if unauthenticated access is available for pod status and node state
+		resp1, err1 := http.Get(fmt.Sprintf("http://%s:%d/api/v1/nodes", ip, 10255))
+		resp2, err2 := http.Get(fmt.Sprintf("http://%s:%d/api/v1/pods", ip, 10255))
+		if err1 == nil && err2 == nil {
+			defer resp1.Body.Close()
+			defer resp2.Body.Close()
+			body1, _ := ioutil.ReadAll(resp1.Body)
+			body2, _ := ioutil.ReadAll(resp2.Body)
+			isVulnerable = isVulnerable || (strings.TrimSpace(string(body1)) != "" && strings.TrimSpace(string(body2)) != "")
+		}
+
+		if isVulnerable {
+			fmt.Printf("Kubelet service on %s:%d is vulnerable to unauthenticated access\n", ip, port)
+		}
+
+		return isVulnerable
+	}
+
+	return false
+}
+
 /* A function to check if a port is serving HTTP and to determine if it's a kube-apiserver which is serving minikube or etcd or other services
 func isHTTP(ip string, port int) string {
 	// Check if it's an HTTP service
@@ -205,6 +335,9 @@ func isHTTP(ip string, port int) string {
 			// Check if it's serving minikube
 			if isMinikube(ip, port) {
 				return "minikube"
+			}
+			if isInsecureAPI(ip, port){
+				return "insecure-api"
 			}
 			return "kube-apiserver"
 		}
