@@ -132,6 +132,7 @@ func incIP(ip net.IP) {
 }
 
 // Scan IP address for open ports and return a slice of open ports
+// Scan IP address for open ports and return a slice of open ports
 func scanIP(ip string, proto string, ports []int, timeout time.Duration) ScanResult {
 	openTCPPorts := []int{}
 	openUDPPorts := []int{}
@@ -145,35 +146,43 @@ func scanIP(ip string, proto string, ports []int, timeout time.Duration) ScanRes
 	if len(ports) == 0 {
 		// Scan all ports
 		for port := 1; port <= 65535; port++ {
-			if isOpen(ip, port, proto, timeout) {
-				fmt.Printf("%s:%d/%s is open\n", ip, port, proto)
-				if proto == "tcp" {
-					openTCPPorts = append(openTCPPorts, port)
-				} else {
-					openUDPPorts = append(openUDPPorts, port)
+			go func(port int) {
+				if isOpen(ip, port, proto, timeout) {
+					fmt.Printf("%s:%d/%s is open\n", ip, port, proto)
+					if proto == "tcp" {
+						openTCPPorts = append(openTCPPorts, port)
+					} else {
+						openUDPPorts = append(openUDPPorts, port)
+					}
 				}
-			}
+			}(port)
 		}
 	} else {
 		// Scan specified ports
 		for _, port := range ports {
-			if isOpen(ip, port, proto, timeout) {
-				fmt.Printf("%s:%d/%s is open\n", ip, port, proto)
-				if proto == "tcp" {
-					openTCPPorts = append(openTCPPorts, port)
-				} else {
-					openUDPPorts = append(openUDPPorts, port)
+			go func(port int) {
+				if isOpen(ip, port, proto, timeout) {
+					fmt.Printf("%s:%d/%s is open\n", ip, port, proto)
+					if proto == "tcp" {
+						openTCPPorts = append(openTCPPorts, port)
+					} else {
+						openUDPPorts = append(openUDPPorts, port)
+					}
 				}
-			}
+			}(port)
 		}
 	}
 
-	return ScanResult{
-		Host:     ip,
+	// Wait for all goroutines to complete
+	time.Sleep(timeout)
+
+	result := ScanResult{
 		IP:       net.ParseIP(ip),
 		TCPPorts: openTCPPorts,
 		UDPPorts: openUDPPorts,
 	}
+
+	return result
 }
 
 func isOpen(ip string, port int, proto string, timeout time.Duration) bool {
