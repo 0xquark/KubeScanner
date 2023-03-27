@@ -39,42 +39,9 @@ func main() {
 		return
 	}
 
-	target := ScanTarget{Host: flag.Arg(0)}
-	if ip := net.ParseIP(target.Host); ip != nil {
-		if ip.To4() == nil {
-			fmt.Println("IPv6 address not supported.")
-			return
-		}
-		target.IP = ip
-	} else {
-		// Resolve hostname
-		addrs, err := net.LookupHost(target.Host)
-		if err != nil {
-			fmt.Printf("Failed to resolve hostname: %s\n", target.Host)
-			return
-		}
-		target.IP = net.ParseIP(addrs[0])
-		if target.IP.To4() == nil {
-			fmt.Println("IPv6 address not supported.")
-			return
-		}
-	}
-	targets = append(targets, target)
-
-	if flag.NArg() > 1 {
-		for _, portStr := range flag.Args()[1:] {
-			port, err := strconv.Atoi(portStr)
-			if err != nil {
-				fmt.Printf("Invalid port number: %s\n", portStr)
-				return
-			}
-			ports = append(ports, port)
-		}
-	}
-
-	// Check if the target is a range of IP addresses
-	ipRange := strings.Split(targets[0].Host, "-")
-	if len(ipRange) > 1 {
+	targetStr := flag.Arg(0)
+	if strings.Contains(targetStr, "-") { // check if target is a range of IP addresses
+		ipRange := strings.Split(targetStr, "-")
 		startIP := net.ParseIP(ipRange[0])
 		endIP := net.ParseIP(ipRange[1])
 		if startIP == nil || endIP == nil {
@@ -88,6 +55,39 @@ func main() {
 			}
 			target := ScanTarget{IP: ip}
 			targets = append(targets, target)
+		}
+	} else {
+		target := ScanTarget{Host: targetStr}
+		if ip := net.ParseIP(target.Host); ip != nil {
+			if ip.To4() == nil {
+				fmt.Println("IPv6 address not supported.")
+				return
+			}
+			target.IP = ip
+		} else {
+			// Resolve hostname
+			addrs, err := net.LookupHost(target.Host)
+			if err != nil {
+				fmt.Printf("Failed to resolve hostname: %s\n", target.Host)
+				return
+			}
+			target.IP = net.ParseIP(addrs[0])
+			if target.IP.To4() == nil {
+				fmt.Println("IPv6 address not supported.")
+				return
+			}
+		}
+		targets = append(targets, target)
+	}
+
+	if flag.NArg() > 1 {
+		for _, portStr := range flag.Args()[1:] {
+			port, err := strconv.Atoi(portStr)
+			if err != nil {
+				fmt.Printf("Invalid port number: %s\n", portStr)
+				return
+			}
+			ports = append(ports, port)
 		}
 	}
 
