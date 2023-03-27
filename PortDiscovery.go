@@ -23,21 +23,36 @@ type ScanResult struct {
 	UDPPorts []int
 }
 
-func main() {
-	var targets []ScanTarget
-	var ports []int
-	var timeout time.Duration = 100 * time.Millisecond
-	var tcpOnly bool
-	var udpOnly bool
+type ScanConfig struct {
+	Targets []ScanTarget
+	Ports   []int
+	Timeout time.Duration
+	TcpOnly bool
+	UdpOnly bool
+}
 
-	// Parse command line arguments
-	flag.BoolVar(&tcpOnly, "tcp", false, "Scan only TCP ports")
-	flag.BoolVar(&udpOnly, "udp", false, "Scan only UDP ports")
+func main() {
+	config, err := parseArgs()
+	if err != nil {
+		fmt.Println("Error parsing arguments:", err)
+		return
+	}
+
+	scanResults := scanTargets(config.Targets, config.TcpOnly, config.UdpOnly, config.Ports, config.Timeout)
+
+	// Print scan results
+	printResults(scanResults)
+}
+
+func parseArgs() (*ScanConfig, error) {
+	var config ScanConfig
+
+	flag.BoolVar(&config.TcpOnly, "tcp", false, "Scan only TCP ports")
+	flag.BoolVar(&config.UdpOnly, "udp", false, "Scan only UDP ports")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Printf("Usage: %s [--tcp|--udp] <host or ip_address or ip_range> [ports...]\n", os.Args[0])
-		return
+		return nil, fmt.Errorf("Usage: %s [--tcp|--udp] <host or ip_address or ip_range> [ports...]", os.Args[0])
 	}
 
 	targetStr := flag.Arg(0)
@@ -46,8 +61,7 @@ func main() {
 		startIP := net.ParseIP(ipRange[0])
 		endIP := net.ParseIP(ipRange[1])
 		if startIP == nil || endIP == nil {
-			fmt.Println("Invalid IP address range.")
-			return
+			return nil, fmt.Errorf("Invalid IP address range.")
 		}
 		for ip := startIP; ip.String() <= endIP.String(); incIP(ip) {
 			if ip.To4() == nil {
@@ -55,47 +69,66 @@ func main() {
 				continue
 			}
 			target := ScanTarget{IP: ip}
-			targets = append(targets, target)
+			config.Targets = append(config.Targets, target)
 		}
 	} else {
 		target := ScanTarget{Host: targetStr}
 		if ip := net.ParseIP(target.Host); ip != nil {
 			if ip.To4() == nil {
-				fmt.Println("IPv6 address not supported.")
-				return
+				return nil, fmt.Errorf("IPv6 address not supported.")
 			}
 			target.IP = ip
 		} else {
 			// Resolve hostname
 			addrs, err := net.LookupHost(target.Host)
 			if err != nil {
-				fmt.Printf("Failed to resolve hostname: %s\n", target.Host)
-				return
+				return nil, fmt.Errorf("Failed to resolve hostname: %s", target.Host)
 			}
 			target.IP = net.ParseIP(addrs[0])
 			if target.IP.To4() == nil {
-				fmt.Println("IPv6 address not supported.")
-				return
+				return nil, fmt.Errorf("IPv6 address not supported.")
 			}
 		}
-		targets = append(targets, target)
+		config.Targets = append(config.Targets, target)
 	}
 
 	if flag.NArg() > 1 {
 		for _, portStr := range flag.Args()[1:] {
 			port, err := strconv.Atoi(portStr)
 			if err != nil {
-				fmt.Printf("Invalid port number: %s\n", portStr)
-				return
+				return nil, fmt.Errorf("Invalid port number: %s", portStr)
 			}
-			ports = append(ports, port)
+			config.Ports = append(config.Ports, port)
 		}
 	}
 
-	// Scan targets
-	results := make(chan ScanResult)
+	config.Timeout = 100 * time.Millisecond
+
+	return &config, nil
+}
+
+func scanTarget(target ScanTarget, proto string, ports []int, timeout time.Duration, results chan<- ScanResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	portsOpen := scanIP(target.IP.String(), proto, ports, timeout)
+	if len(portsOpen.TCPPorts) > 0 || len(portsOpen.UDPPorts) > 0 {
+		result := ScanResult{
+			Host:     target.Host,
+			IP:       target.IP,
+			TCPPorts: portsOpen.TCPPorts,
+			UDPPorts: portsOpen.UDPPorts,
+		}
+		results <- result
+	}
+}
+
+func scanTargets(targets []ScanTarget, tcpOnly bool, udpOnly bool, ports []int, timeout time.Duration) []ScanResult {
+	var wg sync.WaitGroup
+	results := make(chan ScanResult, len(targets))
+
 	for _, target := range targets {
+		wg.Add(1)
 		go func(target ScanTarget) {
+			defer wg.Done()
 			switch {
 			case !tcpOnly && !udpOnly:
 				tcpPortsOpen := scanIP(target.IP.String(), "tcp", ports, timeout)
@@ -133,9 +166,21 @@ func main() {
 		}(target)
 	}
 
-	// Print results
-	for i := 0; i < len(targets); i++ {
-		result := <-results
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var scanResults []ScanResult
+	for result := range results {
+		scanResults = append(scanResults, result)
+	}
+
+	return scanResults
+}
+
+func printResults(results []ScanResult) {
+	for _, result := range results {
 		if len(result.TCPPorts) > 0 || len(result.UDPPorts) > 0 {
 			fmt.Printf("%s (%s) has the following ports open:\n", result.Host, result.IP.String())
 			if len(result.TCPPorts) > 0 {
@@ -147,7 +192,6 @@ func main() {
 		} else {
 			fmt.Printf("%s (%s) has an empty list of open ports.\n", result.Host, result.IP.String())
 		}
-
 	}
 }
 
@@ -162,64 +206,82 @@ func incIP(ip net.IP) {
 	}
 }
 
-// Scan IP address for open ports and return a slice of open ports
-func scanIP(ip string, proto string, ports []int, timeout time.Duration) ScanResult {
-	openTCPPorts := []int{}
-	openUDPPorts := []int{}
+// Define the maximum port number
+const maxPort = 65535
 
-	if net.ParseIP(ip) == nil {
+// scanIP scans the specified IP address for open TCP and UDP ports.
+// If no ports are specified, it scans all ports. Returns a ScanResult
+// struct containing the IP address and open TCP and UDP ports.
+func scanIP(ip string, proto string, ports []int, timeout time.Duration) ScanResult {
+	// Create a channel to collect open ports and a done channel for synchronization
+	openPorts := make(chan int)
+	done := make(chan struct{})
+	defer close(done)
+
+	// Parse the IP address
+	ipAddr := net.ParseIP(ip)
+	if ipAddr == nil {
 		// Invalid IP address
 		fmt.Printf("%s is not a valid IP address\n", ip)
 		return ScanResult{}
 	}
 
+	// Start a goroutine for each specified port
 	var wg sync.WaitGroup
+	for _, port := range ports {
+		wg.Add(1)
+		go func(port int) {
+			defer wg.Done()
+			if isOpen(ip, port, proto, timeout) {
+				fmt.Printf("%s:%d/%s is open\n", ip, port, proto)
+				openPorts <- port
+			}
+		}(port)
+	}
 
+	// If no ports are specified, scan all ports
 	if len(ports) == 0 {
-		// Scan all ports
-		for port := 1; port <= 65535; port++ {
+		for port := 1; port <= maxPort; port++ {
 			wg.Add(1)
 			go func(port int) {
 				defer wg.Done()
 				if isOpen(ip, port, proto, timeout) {
 					fmt.Printf("%s:%d/%s is open\n", ip, port, proto)
-					if proto == "tcp" {
-						openTCPPorts = append(openTCPPorts, port)
-					} else {
-						openUDPPorts = append(openUDPPorts, port)
-					}
-				}
-			}(port)
-		}
-	} else {
-		// Scan specified ports
-		for _, port := range ports {
-			wg.Add(1)
-			go func(port int) {
-				defer wg.Done()
-				if isOpen(ip, port, proto, timeout) {
-					fmt.Printf("%s:%d/%s is open\n", ip, port, proto)
-					if proto == "tcp" {
-						openTCPPorts = append(openTCPPorts, port)
-					} else {
-						openUDPPorts = append(openUDPPorts, port)
-					}
+					openPorts <- port
 				}
 			}(port)
 		}
 	}
 
-	wg.Wait()
+	// Start a goroutine to wait for all other goroutines to finish
+	go func() {
+		wg.Wait()
+		close(openPorts)
+	}()
 
+	// Collect the open ports from the channel
+	openTCPPorts := []int{}
+	openUDPPorts := []int{}
+	for port := range openPorts {
+		switch proto {
+		case "tcp":
+			openTCPPorts = append(openTCPPorts, port)
+		case "udp":
+			openUDPPorts = append(openUDPPorts, port)
+		}
+	}
+
+	// Create and return a ScanResult struct
 	result := ScanResult{
-		IP:       net.ParseIP(ip),
+		IP:       ipAddr,
 		TCPPorts: openTCPPorts,
 		UDPPorts: openUDPPorts,
 	}
-
 	return result
 }
 
+// isOpen checks if the specified TCP or UDP port is open on the specified IP address.
+// Returns true if the port is open, false otherwise.
 func isOpen(ip string, port int, proto string, timeout time.Duration) bool {
 	conn, err := net.DialTimeout(proto, fmt.Sprintf("%s:%d", ip, port), timeout)
 	if err != nil {
