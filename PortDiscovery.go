@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -172,10 +173,14 @@ func scanIP(ip string, proto string, ports []int, timeout time.Duration) ScanRes
 		return ScanResult{}
 	}
 
+	var wg sync.WaitGroup
+
 	if len(ports) == 0 {
 		// Scan all ports
 		for port := 1; port <= 65535; port++ {
+			wg.Add(1)
 			go func(port int) {
+				defer wg.Done()
 				if isOpen(ip, port, proto, timeout) {
 					fmt.Printf("%s:%d/%s is open\n", ip, port, proto)
 					if proto == "tcp" {
@@ -189,7 +194,9 @@ func scanIP(ip string, proto string, ports []int, timeout time.Duration) ScanRes
 	} else {
 		// Scan specified ports
 		for _, port := range ports {
+			wg.Add(1)
 			go func(port int) {
+				defer wg.Done()
 				if isOpen(ip, port, proto, timeout) {
 					fmt.Printf("%s:%d/%s is open\n", ip, port, proto)
 					if proto == "tcp" {
@@ -202,8 +209,7 @@ func scanIP(ip string, proto string, ports []int, timeout time.Duration) ScanRes
 		}
 	}
 
-	// Wait for all goroutines to complete
-	time.Sleep(timeout)
+	wg.Wait()
 
 	result := ScanResult{
 		IP:       net.ParseIP(ip),
@@ -222,3 +228,127 @@ func isOpen(ip string, port int, proto string, timeout time.Duration) bool {
 	conn.Close()
 	return true
 }
+
+/*
+
+Should i use interfaces and structs more often like this ?
+
+type PortChecker interface {
+	IsOpen(ip string, port int, timeout time.Duration) bool
+}
+
+type TCPPortChecker struct{}
+
+func (c *TCPPortChecker) IsOpen(ip string, port int, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), timeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+type UDPPortChecker struct{}
+
+func (c *UDPPortChecker) IsOpen(ip string, port int, timeout time.Duration) bool {
+	conn, err := net.DialTimeout("udp", fmt.Sprintf("%s:%d", ip, port), timeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+type Scanner interface {
+	Scan(ip string, ports []int, timeout time.Duration) ScanResult
+}
+
+type TCPSanner struct{}
+
+func (s *TCPSanner) Scan(ip string, ports []int, timeout time.Duration) ScanResult {
+	openPorts := []int{}
+
+	if net.ParseIP(ip) == nil {
+		// Invalid IP address
+		fmt.Printf("%s is not a valid IP address\n", ip)
+		return ScanResult{}
+	}
+
+	var wg sync.WaitGroup
+
+	if len(ports) == 0 {
+		// Scan all ports
+		for port := 1; port <= 65535; port++ {
+			wg.Add(1)
+			go func(port int) {
+				defer wg.Done()
+				if isOpen(ip, port, "tcp", timeout) {
+					fmt.Printf("%s:%d/tcp is open\n", ip, port)
+					openPorts = append(openPorts, port)
+				}
+			}(port)
+		}
+	} else {
+		// Scan specified ports
+		for _, port := range ports {
+			wg.Add(1)
+			go func(port int) {
+				defer wg.Done()
+				if isOpen(ip, port, "tcp", timeout) {
+					fmt.Printf("%s:%d/tcp is open\n", ip, port)
+					openPorts = append(openPorts, port)
+				}
+			}(port)
+		}
+	}
+
+	wg.Wait()
+
+	result := ScanResult{
+		IP:       net.ParseIP(ip),
+		TCPPorts: openPorts,
+	}
+
+	return result
+}
+
+type UDPSanner struct{}
+
+func (s *UDPSanner) Scan(ip string, ports []int, timeout time.Duration) ScanResult {
+	openPorts := []int{}
+
+	if net.ParseIP(ip) == nil {
+		// Invalid IP address
+		fmt.Printf("%s is not a valid IP address\n", ip)
+		return ScanResult{}
+	}
+
+	var wg sync.WaitGroup
+
+	if len(ports) == 0 {
+		// Scan all ports
+		for port := 1; port <= 65535; port++ {
+			wg.Add(1)
+			go func(port int) {
+				defer wg.Done()
+				if isOpen(ip, port, "udp", timeout) {
+					fmt.Printf("%s:%d/udp is open\n", ip, port)
+					openPorts = append(openPorts, port)
+				}
+			}(port)
+		}
+	} else {
+
+		// Scan specified ports
+		for _, port := range ports {
+			wg.Add(1)
+			go func(port int) {
+				defer wg.Done()
+				if isOpen(ip, port, "udp", timeout) {
+					fmt.Printf("%s:%d/udp is open\n", ip, port)
+					openPorts = append(openPorts, port)
+				}
+			}(port)
+		}
+	}
+*/
