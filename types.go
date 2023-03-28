@@ -61,6 +61,7 @@ type iApplicationDiscoveryResult interface {
 	Protocol() string
 	GetIsDetected() bool
 	GetProperties() map[string]interface{}
+	GetIsAuthRequired() bool
 }
 
 type ApplicationLayerDiscovery interface {
