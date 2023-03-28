@@ -52,3 +52,18 @@ type PresentationLayerDiscovery interface {
 	Protocol() PresentationLayerProtocol
 	Discover(sessionHandler iSessionHandler) (iPresentationDiscoveryResult, error)
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// Application Layer Protocols
+///////////////////////////////////////////////////////////////////////////////
+
+type iApplicationDiscoveryResult interface {
+	Protocol() string
+	GetIsDetected() bool
+	GetProperties() map[string]interface{}
+}
+
+type ApplicationLayerDiscovery interface {
+	Protocol() string
+	Discover(sessionHandler iSessionHandler, presenationLayerDiscoveryResult iPresentationDiscoveryResult) (iApplicationDiscoveryResult, error)
+}
