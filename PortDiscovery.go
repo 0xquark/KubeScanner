@@ -32,12 +32,14 @@ type ScanConfig struct {
 }
 
 func main() {
+	// Parse Arguments
 	config, err := parseArgs()
 	if err != nil {
 		fmt.Println("Error parsing arguments:", err)
 		return
 	}
 
+	// Scan Targets
 	scanResults := scanTargets(config.Targets, config.TcpOnly, config.UdpOnly, config.Ports, config.Timeout)
 
 	// Print scan results
@@ -206,13 +208,14 @@ func incIP(ip net.IP) {
 	}
 }
 
-// Define the maximum port number
+// Define the maximum port number and the number of goroutines to use
 const maxPort = 65535
-const numGoroutines = 4
+const numGoroutines = 8
 
-// scanIP scans the specified IP address for open TCP and UDP ports.
-// If no ports are specified, it scans all ports. Returns a ScanResult
-// struct containing the IP address and open TCP and UDP ports.
+/* scanIP scans the specified IP address for open TCP and UDP ports.
+ If no ports are specified, it scans all ports. Returns a ScanResult
+struct containing the IP address and open TCP and UDP ports. */
+
 func scanIP(ip string, proto string, ports []int, timeout time.Duration) ScanResult {
 	// Create a channel to collect open ports and a done channel for synchronization
 	openPorts := make(chan int)
