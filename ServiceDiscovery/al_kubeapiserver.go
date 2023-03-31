@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -43,15 +44,25 @@ func (d *KubeApiServerDiscovery) Discover(sessionHandler iSessionHandler, presen
 	}
 
 	// Check if the HTTP response contains the Kubernetes server header
-	if !strings.Contains(plResult.GetProperties()["header"].(string), "Kubernetes") {
+	kubeHeader := plResult.GetProperties()["header"].(string)
+	if !strings.Contains(kubeHeader, "Server: Kubernetes") {
 		return nil, nil
 	}
+
+	// Extract the Kubernetes API server version from the header
+	re := regexp.MustCompile(`Server: Kubernetes\/(\S+)`)
+	match := re.FindStringSubmatch(kubeHeader)
+	if len(match) < 2 {
+		return nil, fmt.Errorf("failed to extract Kubernetes API server version")
+	}
+	version := match[1]
 
 	// Return a discovery result indicating that a kube-apiserver instance was detected
 	return &KubeApiServerDiscoveryResult{
 		isDetected: true,
 		properties: map[string]interface{}{
-			"header": plResult.GetProperties()["header"],
+			"version": version,
+			"header":  kubeHeader,
 		},
 	}, nil
 }
