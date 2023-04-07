@@ -14,8 +14,8 @@ var ApplicationDiscoveryList = []ApplicationDiscoveryListItem{
 		Discovery:  &KubeApiServerDiscovery{},
 		Reqirement: string(HTTP),
 	},
-	//	{
-	//		Discovery:  &MysqlDiscovery{},
-	//		Reqirement: string(TCP),
-	//	},
+		{
+			Discovery:  &MysqlDiscovery{},
+			Reqirement: string(TCP),
+		},
 }
