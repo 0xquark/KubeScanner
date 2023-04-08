@@ -6,7 +6,7 @@ import (
 )
 
 type MysqlDiscoveryResult struct {
-	isDetected bool
+	IsDetected bool
 	properties map[string]interface{}
 }
 
@@ -17,16 +17,14 @@ func (r *MysqlDiscoveryResult) Protocol() string {
 }
 
 func (r *MysqlDiscoveryResult) GetIsAuthRequired() bool {
-	// Implementation of GetIsAuthRequired method
 	return false
 }
 
-func (r *MysqlDiscoveryResult) GetIsDetected() bool{
-	return r.isDetected
+func (r *MysqlDiscoveryResult) GetIsDetected() bool {
+	return r.IsDetected
 }
 
 func (r *MysqlDiscoveryResult) GetProperties() map[string]interface{} {
-	// Implementation of GetProperties method
 	return r.properties
 }
 
@@ -40,13 +38,6 @@ func (d *MysqlDiscovery) Discover(sessionHandler iSessionHandler, presentationLa
 		return nil, err
 	}
 
-	// Read data from the MySQL server
-	data := make([]byte, 1024)
-	_, err = sessionHandler.Read(data)
-	if err != nil {
-		return nil, err
-	}
-
 	// Decode initial handshake packet
 	packet := &InitialHandshakePacket{}
 	err = packet.Decode(sessionHandler)
@@ -56,14 +47,14 @@ func (d *MysqlDiscovery) Discover(sessionHandler iSessionHandler, presentationLa
 
 	// Create MySQL discovery result
 	return &MysqlDiscoveryResult{
-		isDetected: true,
+		IsDetected: true,
 		properties: map[string]interface{}{
-			"ServerVersion": packet.ServerVersion,
-			"ConnectionId":  packet.ConnectionId,
+			"ServerVersion":   packet.ServerVersion,
+			"protocolVersion": packet.ProtocolVersion,
+			"ConnectionId":    packet.ConnectionId,
 		},
 	}, nil
 }
-
 
 // PacketHeader represents packet header
 type PacketHeader struct {
@@ -73,10 +64,10 @@ type PacketHeader struct {
 
 // InitialHandshakePacket represents initial handshake packet sent by MySQL Server
 type InitialHandshakePacket struct {
-	ProtocolVersion   uint8
-	ServerVersion     []byte
-	ConnectionId      uint32
-	header            *PacketHeader
+	ProtocolVersion uint8
+	ServerVersion   []byte
+	ConnectionId    uint32
+	header          *PacketHeader
 }
 
 func (r *InitialHandshakePacket) Decode(sessionHandler iSessionHandler) error {
@@ -116,6 +107,3 @@ func (r *InitialHandshakePacket) Decode(sessionHandler iSessionHandler) error {
 	// Return nil error since there is no error
 	return nil
 }
-
-
- 
