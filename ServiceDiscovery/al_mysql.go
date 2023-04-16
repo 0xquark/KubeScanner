@@ -107,3 +107,4 @@ func (r *InitialHandshakePacket) Decode(sessionHandler iSessionHandler) error {
 	// Return nil error since there is no error
 	return nil
 }
+

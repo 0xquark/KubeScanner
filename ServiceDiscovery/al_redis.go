@@ -39,7 +39,6 @@ func (d *RedisDiscovery) Discover(sessionHandler iSessionHandler, presentationLa
 	if err != nil {
 		return nil, err
 	}
-	defer sessionHandler.Destory()
 
 	// Send the INFO command to Redis
 	_, err = sessionHandler.Write([]byte("*1\r\n$4\r\nINFO\r\n"))
@@ -92,3 +91,4 @@ func (d *RedisDiscovery) Discover(sessionHandler iSessionHandler, presentationLa
 		},
 	}, nil
 }
+

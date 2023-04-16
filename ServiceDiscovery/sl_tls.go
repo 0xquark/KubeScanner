@@ -3,6 +3,8 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"net/http"
+	"net/url"
 )
 
 type TlsSessionDiscovery struct {
@@ -25,16 +27,31 @@ func (d *TlsSessionDiscovery) Protocol() TransportProtocol {
 }
 
 func (d *TlsSessionDiscovery) SessionLayerDiscover(hostAddr string, port int) (iSessionLayerDiscoveryResult, error) {
-	// Create a TLS config with InsecureSkipVerify set
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
-	}
-
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", hostAddr, port), tlsConfig)
+	// Parse the proxy address
+	proxyUrl, err := url.Parse("http://127.0.0.1:8080")
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+
+	// Create a TLS config with InsecureSkipVerify set and the proxy address
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		RootCAs:            nil,
+	}
+	transport := &http.Transport{
+		Proxy:           http.ProxyURL(proxyUrl),
+		TLSClientConfig: tlsConfig,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+	}
+
+	resp, err := client.Get(fmt.Sprintf("https://%s:%d", hostAddr, port))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 
 	return &TlsSessionDiscoveryResult{isTls: true, host: hostAddr, port: port}, nil
 }
@@ -56,10 +73,31 @@ func (d *TlsSessionDiscoveryResult) GetSessionHandler() (iSessionHandler, error)
 }
 
 func (d *TlsSessionHandler) Connect() error {
-	// Create a TLS config with InsecureSkipVerify set
+	// Parse the proxy address
+	proxyUrl, err := url.Parse("http://127.0.0.1:8080")
+	if err != nil {
+		return err
+	}
+
+	// Create a TLS config with InsecureSkipVerify set and the proxy address
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
+		RootCAs:            nil,
 	}
+	transport := &http.Transport{
+		Proxy:           http.ProxyURL(proxyUrl),
+		TLSClientConfig: tlsConfig,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+	}
+
+	resp, err := client.Get(fmt.Sprintf("https://%s:%d", d.host, d.port))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
 	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", d.host, d.port), tlsConfig)
 	if err != nil {

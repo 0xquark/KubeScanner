@@ -5,8 +5,8 @@ import (
 )
 
 func main() {
-	host := "8.8.8.8"
-	port := 443
+	host := "127.0.0.1"
+	port := 3306
 
 	// Discover session layer protocols
 	for _, sessionDiscoveryItem := range SessionDiscoveryList {
